@@ -6,6 +6,24 @@ import os
 import matplotlib.pyplot as plt
 
 
+# cv2.imshow('a', cv2.resize(cv2.imread('/home/user/Documents/accurate_speed_calculation/gps/data4/calibration/pass1/1690888162050.jpg'), (960,960)))
+# cv2.waitKey(0)
+# cv2.imshow('a', cv2.resize(cv2.imread('/home/user/Documents/accurate_speed_calculation/gps/data4/calibration/pass1/1690888165600.jpg'), (960,960)))
+# cv2.waitKey(0)
+# cv2.imshow('a', cv2.resize(cv2.imread('/home/user/Documents/accurate_speed_calculation/gps/data4/calibration/pass3/1690888856550.jpg'), (960,960)))
+# cv2.waitKey(0)
+# cv2.imshow('a', cv2.resize(cv2.imread('/home/user/Documents/accurate_speed_calculation/gps/data4/calibration/pass3/1690888860150.jpg'), (960,960)))
+# cv2.waitKey(0)
+
+# cv2.imshow('a', cv2.resize(cv2.imread('/home/user/Documents/accurate_speed_calculation/gps/data1_back/calibration/lane2/1681456230350.jpg'), (960,960)))
+# cv2.waitKey(0)
+# cv2.imshow('a', cv2.resize(cv2.imread('/home/user/Documents/accurate_speed_calculation/gps/data1_back/calibration/lane2/1681456233500.jpg'), (960,960)))
+# cv2.waitKey(0)
+# cv2.imshow('a', cv2.resize(cv2.imread('/home/user/Documents/accurate_speed_calculation/gps/data1_back/calibration/lane3/1681456503200.jpg'), (960,960)))
+# cv2.waitKey(0)
+# cv2.imshow('a', cv2.resize(cv2.imread('/home/user/Documents/accurate_speed_calculation/gps/data1_back/calibration/lane3/1681456505500.jpg'), (960,960)))
+# cv2.waitKey(0)
+
 def load_frames(folder_path):
     frames = []
 
@@ -30,18 +48,17 @@ def load_frames(folder_path):
 
 
 gps_coordinates = np.array([
-    [+03349.559028, -02214.213222],  # track 2 start
-    [+03349.569012, -02214.152352],  # track 2 end
-    [+03349.557060, -02214.207102],  # track 3 start
-    [+03349.566708, -02214.147402]   # track 3 end
+    [+3379.869120, -02235.031680],  # track 1 start
+    [+3379.835260, -02235.040000],  # track 1 end
+    [+3349.556808, -02214.208620],  # track 3 start
+    [+3349.568160, -02214.138150]  # track 3 end
 ])
 
-# Example pixel coordinates in the video frame
 video_coordinates = np.array([
-    [618, 24],
-    [102, 454],
-    [870, 27],
-    [671, 465]
+    [621, 9],
+    [120, 412],
+    [872, 10],
+    [554, 673],
 ])
 
 src_points = gps_coordinates
@@ -55,14 +72,19 @@ width = 960
 height = 960
 
 # Map GPS coordinates to the video frame
-gps_file = '/home/user/Documents/accurate_speed_calculation/gps/lane3.csv'
-video_file = '/home/user/Downloads/pass3'
+video_file = '/home/user/Documents/accurate_speed_calculation/gps/data1_back/lane1'
 
-gps_data = pd.read_csv(gps_file)
 frames = load_frames(video_file)
 
-gps_xs = gps_data.iloc[:, 1].values.reshape(-1, 1)  # Assuming the second column is latitude
-gps_ys = gps_data.iloc[:, 2].values.reshape(-1, 1)  # Assuming the third column is longitude
+prediction_gps_path = '/home/user/Documents/accurate_speed_calculation/gps/data1_back/lane1.txt'
+gps_xs = []
+gps_ys = []
+with open(prediction_gps_path, 'r') as input_file:
+    for line in input_file:
+        data = line.split()
+        lat, long = float(data[1]), float(data[2])
+        gps_xs.append(lat)
+        gps_ys.append(long)
 
 fig, ax = plt.subplots()
 
@@ -73,21 +95,20 @@ for gps_x, gps_y, frame in zip(gps_xs, gps_ys, frames):
     frame = cv2.resize(frame, (width, height))
     warped_frame = cv2.warpPerspective(frame, H, (width, height))
 
-    gps_x = gps_x[0]
     x.append(gps_x)
-    gps_y = gps_y[0]
     y.append(gps_y)
 
     mapped_point = np.dot(H, np.array([gps_x, gps_y, 1]))
     mapped_point = (mapped_point / mapped_point[2])[:2]
+    # mapped_point_int = tuple(mapped_point.astype(int))
     mapped_point_int = tuple(np.round(mapped_point).astype(int))
 
-    cv2.circle(frame, video_coordinates[0], radius=5, color=(255, 255, 0), thickness=-1)
-    cv2.circle(frame, video_coordinates[1], radius=5, color=(255, 255, 0), thickness=-1)
-    cv2.circle(frame, video_coordinates[2], radius=5, color=(255, 255, 0), thickness=-1)
-    cv2.circle(frame, video_coordinates[3], radius=5, color=(255, 255, 0), thickness=-1)
+    cv2.circle(frame, video_coordinates[0], radius=5, color=(0, 0, 255), thickness=-1)  # First - Red
+    cv2.circle(frame, video_coordinates[1], radius=5, color=(0, 255, 0), thickness=-1)  # Second - Green
+    cv2.circle(frame, video_coordinates[2], radius=5, color=(255, 0, 0), thickness=-1)  # Third - Blue
+    cv2.circle(frame, video_coordinates[3], radius=5, color=(0, 0, 0), thickness=-1)  # Fourth - Black
 
-    cv2.circle(frame, mapped_point_int, radius=5, color=(0, 255, 0), thickness=-1)
+    cv2.circle(frame, (mapped_point_int[0], mapped_point_int[1]), radius=5, color=(255, 255, 255), thickness=-1)
 
     cv2.imshow("Frame with Mapped Point", frame)
     cv2.waitKey(250)
