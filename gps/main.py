@@ -183,6 +183,14 @@ class Homography:
         # cv2.imshow('3', frame)
         # cv2.waitKey(0)
 
+    def generate_gps_coords(self, lane_plate_num):
+        generated_lanes = defaultdict(list)
+        for calib_folder, info in self.calib_info.items():
+            first_coord = info['start_finish_gps_coords'][0]
+            last_coord = info['start_finish_gps_coords'][-1]
+            generated_lanes[calib_folder] = np.linspace(first_coord, last_coord, lane_plate_num[calib_folder])
+        return generated_lanes
+
     def perform_homography(self):
         source_gps_cords = []
         for calib_folder, info in self.calib_info.items():
@@ -191,13 +199,18 @@ class Homography:
         source_gps_cords = np.array(source_gps_cords)
         self.homography_matrix, _ = cv2.findHomography(source_gps_cords, self.plate_coords, cv2.RANSAC, 5.0)
         self.inv_homography_matrix = np.linalg.inv(self.homography_matrix)
+        np.save('calib_4pt', self.homography_matrix)
+        np.save('calib_4pt_inv', self.inv_homography_matrix)
 
         # Multi calibration point method:
         if self.multi_point:
+            lane_plane_num = defaultdict(int)
             plate_coords = defaultdict(list)
             for calibration_folder in self.calib_folders:
+                lane_plane_num[calibration_folder] = 0
                 with open(os.path.join(self.calib_data_path, calibration_folder, 'output_coords.txt')) as f:
                     for line in f:
+                        lane_plane_num[calibration_folder] += 1
                         plate_coords[calibration_folder].append(list(eval(line))[0])
                 plate_coords[calibration_folder] = np.array(plate_coords[calibration_folder])
 
@@ -207,23 +220,33 @@ class Homography:
                     source_gps_cords[calibration_folder].append(tuple(i))
                 source_gps_cords[calibration_folder] = np.array(source_gps_cords[calibration_folder])
 
+            source_gps_cords = self.generate_gps_coords(lane_plane_num)
+
             # Trim lists for having same amount of elements
-            for plate, gps in zip(plate_coords.items(), source_gps_cords.items()):
-                distance = (len(plate[1]) - 1) // (len(gps[1]))
-                plate_coords[plate[0]] = [plate[1][i] for i in range(len(plate[1])) if (i + 1) % (distance + 1) != 0]
+            # for plate, gps in zip(plate_coords.items(), source_gps_cords.items()):
+            #     distance = (len(plate[1]) - 1) // (len(gps[1]))
+            #     plate_coords[plate[0]] = [plate[1][i] for i in range(len(plate[1])) if (i + 1) % (distance + 1) != 0]
 
-            plate_coords = [item for sublist in zip(plate_coords['pass1'], plate_coords['pass2']) for item in sublist]
-            plate_coords = np.array(plate_coords)
-            source_gps_cords = [item for sublist in zip(source_gps_cords['pass1'], source_gps_cords['pass2']) for item in sublist]
-            source_gps_cords = np.array(source_gps_cords)
+            plate_coords = np.concatenate((plate_coords[list(plate_coords.keys())[0]],
+                                           plate_coords[list(plate_coords.keys())[1]]), axis=0)
+            # plate_coords = [item for sublist in zip(plate_coords['pass1'], plate_coords['pass2']) for item in sublist]
+            # plate_coords = np.array(plate_coords)
+            source_gps_cords = np.concatenate((source_gps_cords[list(source_gps_cords.keys())[0]],
+                                               source_gps_cords[list(source_gps_cords.keys())[1]]), axis=0)
+            # source_gps_cords = [item for sublist in zip(source_gps_cords['pass1'], source_gps_cords['pass2']) for item
+            #                     in sublist]
+            # source_gps_cords = np.array(source_gps_cords)
 
+            # min_length = min(len(source_gps_cords), len(plate_coords))
             # source_gps_cords = source_gps_cords[:min_length]
             # plate_coords = plate_coords[:min_length]
+
             # self.homography_matrix, _ = cv2.findHomography(source_gps_cords, plate_coords, cv2.USAC_PROSAC, 500.0)
             # self.homography_matrix, _ = cv2.findHomography(source_gps_cords, plate_coords, cv2.LMEDS, 500.0)
             self.homography_matrix, _ = cv2.findHomography(source_gps_cords, plate_coords)
-
             self.inv_homography_matrix = np.linalg.inv(self.homography_matrix)
+            np.save('many_calib_pt', self.homography_matrix)
+            np.save('many_calib_pt_inv', self.inv_homography_matrix)
             # End
 
         self.pred_frames = self.load_frames()
@@ -269,13 +292,19 @@ class Homography:
             # end
 
         frame = self.pred_frames[0]
-        for calib_folder, info in self.calib_info.items():
-            for coord in info['start_finish_gps_coords']:
-                x, y = map(float, coord)
-                mapped_point = np.dot(self.homography_matrix, np.array([x, y, 1]))
-                mapped_point = (mapped_point / mapped_point[2])[:2]
-                mapped_point_int = tuple(mapped_point.astype(int))
-                frame = cv2.circle(frame, mapped_point_int, radius=5, color=(0, 0, 255), thickness=-1)  # Fourth - Black
+        for coord in source_gps_cords:
+            x, y = map(float, coord)
+            mapped_point = np.dot(self.homography_matrix, np.array([x, y, 1]))
+            mapped_point = (mapped_point / mapped_point[2])[:2]
+            mapped_point_int = tuple(mapped_point.astype(int))
+            frame = cv2.circle(frame, mapped_point_int, radius=5, color=(0, 0, 255), thickness=-1)  # Fourth - Black
+        # for calib_folder, info in self.calib_info.items():
+        #     for coord in info['start_finish_gps_coords']:
+        #         x, y = map(float, coord)
+        #         mapped_point = np.dot(self.homography_matrix, np.array([x, y, 1]))
+        #         mapped_point = (mapped_point / mapped_point[2])[:2]
+        #         mapped_point_int = tuple(mapped_point.astype(int))
+        #         frame = cv2.circle(frame, mapped_point_int, radius=5, color=(0, 0, 255), thickness=-1)  # Fourth - Black
         cv2.imshow("Frame with Mapped Point", frame)
         cv2.waitKey(0)
 
@@ -305,8 +334,9 @@ class Homography:
 
             cv2.circle(frame, mapped_point_int, radius=5, color=(0, 255, 0), thickness=-1)
 
-            cv2.imshow("Frame with Mapped Point", frame)
-            cv2.waitKey(250)
+            # cv2.imshow("Frame with Mapped Point", frame)
+            # cv2.waitKey(250)
+
         with open('/home/user/Documents/accurate_speed_calculation/gps/data5/pass3/output_coords.txt') as f:
             for line in f:
                 cv2.circle(frame, eval(line)[0], radius=5, color=(255, 255, 0), thickness=-1)
@@ -366,64 +396,6 @@ class Homography:
         plt.grid(True)
         plt.show()
 
-    def draw_homo_grid(self):
-        # Create a grid on the frame
-        grid_frame = self.pred_frames[0]
-        # Create a grid on the frame
-        for i in range(0, self.height, self.grid_spacing):
-            cv2.line(grid_frame, (i, 0), (i, self.width), (0, 255, 0), 1)
-            cv2.line(grid_frame, (0, i), (self.height, i), (0, 255, 0), 1)
-
-        # Apply homography to the grid points
-        mapped_points = cv2.perspectiveTransform(np.array(
-            [[[i, j]] for j in range(0, self.width, self.grid_spacing) for i in
-             range(0, self.height, self.grid_spacing)],
-            dtype=np.float32), self.inv_homography_matrix)
-
-        # Draw the mapped grid on the frame
-        for point in mapped_points:
-            cv2.circle(grid_frame, (int(point[0, 0]), int(point[0, 1])), 3, (255, 0, 0), -1)
-
-        # Draw the mapped points on a plot
-        plt.plot(mapped_points[:, 0, 0], mapped_points[:, 0, 1], 'bo', label='Mapped Grid Points')
-        plt.xlabel('X')
-        plt.ylabel('Y')
-        plt.title('Mapped Grid Points using Homography')
-        plt.legend()
-        plt.show()
-
-        # Display the frame with grid
-        cv2.imshow('Grid on Frame', grid_frame)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-
-        #
-        # grid_x, grid_y = np.meshgrid(
-        #     np.arange(0, self.height, self.grid_spacing),
-        #     np.arange(0, self.width, self.grid_spacing)
-        # )
-        #
-        # # Stack the grid points to form homogeneous coordinates
-        # grid_points = np.vstack((grid_x.flatten(), grid_y.flatten(), np.ones_like(grid_x.flatten())))
-        #
-        # # Apply homography to the grid points
-        # mapped_points = np.dot(self.homography_matrix, grid_points)
-        #
-        # # Normalize homogeneous coordinates
-        # mapped_points_normalized = mapped_points[:2, :] / mapped_points[2, :]
-        #
-        # # Plot the original grid
-        # plt.plot(grid_x, grid_y, 'ro', label='Original Grid')
-        #
-        # # Plot the mapped grid
-        # plt.plot(mapped_points_normalized[0, :], mapped_points_normalized[1, :], 'bo', label='Mapped Grid')
-        #
-        # plt.xlabel('X')
-        # plt.ylabel('Y')
-        # plt.title('Grid Mapping using Homography')
-        # plt.legend()
-        # plt.show()
-
     def create_meshgrid(self, grid_resolution=10):
         coord1 = self.calib_info[list(self.calib_info.keys())[0]]['start_finish_gps_coords'][0]
         coord2 = self.calib_info[list(self.calib_info.keys())[0]]['start_finish_gps_coords'][-1]
@@ -435,7 +407,7 @@ class Homography:
 
         print(coord1, coord2)
 
-        x1, y1 = self.generate_parallel_lines(coord1, coord2)
+        # x1, y1 = self.generate_parallel_lines(coord1, coord2)
         x, y = self.generate_parallel_lines2(coord1, coord2, coord3, coord4)
 
         # x = np.linspace(min(coord1[0], coord2[0]), max(coord1[0], coord2[0]) + (np.ptp([coord1[0], coord2[0]]) * 2), n)
@@ -496,6 +468,20 @@ class Homography:
             mapped_point_int2 = tuple(mapped_point.astype(int))
 
             cv2.line(frame, mapped_point_int1, mapped_point_int2, color=(0, 255, 255), thickness=1)
+
+        n = 15
+        horizontal_lines1 = np.linspace(coord1, coord2, n)
+        horizontal_lines2 = np.linspace(coord3, coord4, n)
+        for l1, l2 in zip(horizontal_lines1, horizontal_lines2):
+            mapped_l1 = np.dot(self.homography_matrix, np.array([*l1, 1]))
+            mapped_l1 = (mapped_l1 / mapped_l1[2])[:2]
+            mapped_l1_int = tuple(np.round(mapped_l1).astype(int))
+
+            mapped_l2 = np.dot(self.homography_matrix, np.array([*l2, 1]))
+            mapped_l2 = (mapped_l2 / mapped_l2[2])[:2]
+            mapped_l2_int = tuple(np.round(mapped_l2).astype(int))
+
+            cv2.line(frame, mapped_l1_int, mapped_l2_int, color=(0, 255, 255), thickness=1)
 
         # for i in x:
         #     for j in y:
@@ -582,7 +568,7 @@ class Homography:
         return xs, ys
 
     def generate_parallel_lines2(self, coord1, coord2, coord3, coord4):
-        n = 5
+        n = 8
         upper_line = np.linspace(coord1, coord3, n)
         lower_line = np.linspace(coord2, coord4, n)
 
@@ -663,7 +649,6 @@ class Homography:
         # self.plot_gps()
         # self.calibrate_plate()
         self.perform_homography()
-        # self.draw_homo_grid()
         self.create_meshgrid()
 
 
